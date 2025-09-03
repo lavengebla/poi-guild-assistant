@@ -5,16 +5,19 @@ import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ForceReplyKeyboard;
+import ru.ed.module.back.service.TempUserService;
 import ru.ed.module.bot.event.TelegramEventPublisher;
 import ru.ed.module.bot.model.DialogEntity;
 import ru.ed.module.bot.service.ImageService;
 
 @Component
 @DialogPartProcessor("your_settings")
-public class YourSettingsProcessor extends AbstractProcessor {
+public class YourSettingsProcessor extends DialogProcessor {
 
-    public YourSettingsProcessor(ImageService imageService, TelegramEventPublisher telegramEventPublisher) {
-        super(imageService, telegramEventPublisher);
+    public YourSettingsProcessor(ImageService imageService,
+                                 TelegramEventPublisher telegramEventPublisher,
+                                 TempUserService tempUserService) {
+        super(imageService, telegramEventPublisher, tempUserService);
     }
 
     @Override
@@ -23,7 +26,7 @@ public class YourSettingsProcessor extends AbstractProcessor {
         ingameSettings.setChatId(entity.getDialogSession().getTelegramId());
 
         InputFile inputFile = new InputFile();
-        inputFile.setMedia(imageService.getImage("mock.jpg"), "mock.jpg");
+        inputFile.setMedia(imageService.getImage("mock"), "mock");
         ingameSettings.setPhoto(inputFile);
         ingameSettings.setParseMode("html");
         ingameSettings.setCaption("""
@@ -39,6 +42,6 @@ public class YourSettingsProcessor extends AbstractProcessor {
 
     @Override
     public void handleResponse(Update update) {
-
+        tempUserService.addUserResponse(update.getMessage().getChatId(), "your_settings", update.getMessage().getText());
     }
 }

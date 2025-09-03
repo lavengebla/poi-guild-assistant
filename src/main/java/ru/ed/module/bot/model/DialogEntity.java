@@ -5,11 +5,13 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
+import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 import ru.ed.module.model.AbstractEntity;
 
-@Entity(name = "dialog_entities")
+@Entity
+@Table(name = "dialog_entities")
 @Getter
 @Setter
 public class DialogEntity extends AbstractEntity {
@@ -24,7 +26,7 @@ public class DialogEntity extends AbstractEntity {
     @Column(name = "submission")
     private String submission;
 
-    @Column(name = "order")
+    @Column(name = "entity_order")
     private Integer order;
 
 }

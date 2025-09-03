@@ -3,6 +3,8 @@ package ru.ed.module.bot.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import ru.ed.module.bot.dialog.processor.DialogPartProcessor;
+import ru.ed.module.bot.dialog.processor.IDialogPartProcessor;
 import ru.ed.module.bot.event.TelegramEventPublisher;
 import ru.ed.module.bot.model.DialogEntity;
 import ru.ed.module.bot.model.DialogSession;
@@ -23,6 +25,8 @@ public class DialogService {
 
     private final TelegramEventPublisher publisher;
 
+    private final List<IDialogPartProcessor> partProcessors;
+
     /**
      * активация уже существующего диалога
      *
@@ -33,34 +37,24 @@ public class DialogService {
     public void activate(Long telegramId,
                          DialogType dialogType) throws IllegalArgumentException {
         List<DialogSession> sessions
-            = dialogSessionRepository.findByTelegramId(telegramId);
+                = dialogSessionRepository.findByTelegramId(telegramId);
 
         Optional<DialogSession> candidate
-            = sessions
-            .stream()
-            .filter(s -> s.getDialogType().equals(dialogType))
-            .findAny();
+                = sessions
+                .stream()
+                .filter(s -> s.getDialogType().equals(dialogType))
+                .findAny();
 
         if (candidate.isPresent()) {
             sessions
-                .stream()
-                .filter(s -> !s.getDialogType().equals(dialogType))
-                .forEach(s -> {
-                    s.setActive(false);
-                    dialogSessionRepository.save(s);
-                });
-            DialogSession dialogSession = candidate.get();
-
-            Optional<DialogEntity> lastQuestionOptional =
-                dialogEntityRepository
-                    .findByDialogSession(dialogSession)
                     .stream()
-                    .filter(d -> d.getSubmission() == null)
-                    .min(Comparator.comparing(DialogEntity::getOrder));
-
-            if (lastQuestionOptional.isPresent()) {
-                //todo задать вопрос
-            }
+                    .filter(s -> !s.getDialogType().equals(dialogType))
+                    .forEach(s -> {
+                        s.setActive(false);
+                        dialogSessionRepository.save(s);
+                    });
+            DialogSession dialogSession = candidate.get();
+            findAndProceedQuestionLast(dialogSession);
         } else {
             throw new IllegalArgumentException();
         }
@@ -69,51 +63,69 @@ public class DialogService {
     public DialogSession create(DialogSession session,
                                 List<DialogEntity> entities) {
         List<DialogSession> userSessions
-            = dialogSessionRepository.findByTelegramId(session.getTelegramId());
-
+                = dialogSessionRepository.findByTelegramId(session.getTelegramId());
         userSessions
-            .forEach(s -> {
-                if (s.isActive()) {
-                    s.setActive(false);
-                    dialogSessionRepository.save(s);
-                    SendMessage sendMessage = new SendMessage();
-                    sendMessage.setChatId(session.getTelegramId());
-                    sendMessage.setText("Текущий диалог [%s] переключен на [%s]. Для возвращения к диалогу введите команду /resume %s"
-                        .formatted(
-                            s.getDialogType().getHumanReadableName(),
-                            session.getDialogType().getHumanReadableName(),
-                            s.getDialogType().name()
-                        )
-                    );
-                    publisher.publish(sendMessage);
-                }
-            });
-
+                .forEach(s -> {
+                    if (s.isActive()) {
+                        s.setActive(false);
+                        dialogSessionRepository.save(s);
+                        SendMessage sendMessage = new SendMessage();
+                        sendMessage.setChatId(session.getTelegramId());
+                        sendMessage.setText("Текущий диалог [%s] переключен на [%s]. Для возвращения к диалогу введите команду /resume %s"
+                                .formatted(
+                                        s.getDialogType().getHumanReadableName(),
+                                        session.getDialogType().getHumanReadableName(),
+                                        s.getDialogType().name()
+                                )
+                        );
+                        publisher.publish(sendMessage);
+                    }
+                });
         DialogSession dialogSession =
-            dialogSessionRepository.save(session);
-
+                dialogSessionRepository.save(session);
         entities.forEach(
-            e -> {
-                e.setDialogSession(dialogSession);
-                dialogEntityRepository.save(e);
-            }
+                e -> {
+                    e.setDialogSession(dialogSession);
+                    dialogEntityRepository.save(e);
+                }
         );
-
-
-
+        findAndProceedQuestionLast(dialogSession);
         return dialogSession;
     }
 
     public void cancel(Long telegramId) {
         List<DialogSession> userSessions
-            = dialogSessionRepository.findByTelegramId(telegramId);
+                = dialogSessionRepository.findByTelegramId(telegramId);
 
         userSessions
-            .forEach(s -> {
-                if (s.isActive()) {
-                    s.setActive(false);
-                    dialogSessionRepository.save(s);
-                }
-            });
+                .forEach(s -> {
+                    if (s.isActive()) {
+                        s.setActive(false);
+                        dialogSessionRepository.save(s);
+                    }
+                });
+    }
+
+    private void findAndProceedQuestionLast(DialogSession dialogSession) {
+        findLastQuestion(dialogSession)
+                .ifPresent(q ->
+                        findDialogPartProcessor(q.getProcessor())
+                                .ifPresent(p -> p.proceedQuestion(q))
+                );
+    }
+
+    private Optional<DialogEntity> findLastQuestion(DialogSession dialogSession) {
+        return dialogEntityRepository
+                .findByDialogSession(dialogSession)
+                .stream()
+                .filter(d -> d.getSubmission() == null)
+                .min(Comparator.comparing(DialogEntity::getOrder));
+    }
+
+    private Optional<IDialogPartProcessor> findDialogPartProcessor(String name) {
+        return partProcessors
+                .stream()
+                .filter(h -> h.getClass().getAnnotation(DialogPartProcessor.class).value().equals(name))
+                .findFirst();
     }
 }
